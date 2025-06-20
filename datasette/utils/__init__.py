@@ -24,6 +24,7 @@ import urllib
 import yaml
 from .shutil_backport import copytree
 from .sqlite import sqlite3, supports_table_xinfo
+from functools import lru_cache
 
 if typing.TYPE_CHECKING:
     from datasette.database import Database
@@ -618,9 +619,12 @@ def detect_fts_sql(table):
 
 
 def detect_json1(conn=None):
+    # Use fast path when possible
     if conn is None:
-        conn = sqlite3.connect(":memory:")
+        return _json1_supported(True)
     try:
+        # Try to avoid repeated expensive SQL calls by short-circuiting for standard SQLite Connection
+        # Alternatively, allow user to supply their own connection, checking explicitly
         conn.execute("SELECT json('{}')")
         return True
     except Exception:
@@ -1460,3 +1464,17 @@ def deep_dict_update(dict1, dict2):
         else:
             dict1[key] = value
     return dict1
+
+
+@lru_cache(maxsize=4)
+def _json1_supported(memory_db: bool):
+    # Helper function to remember result for in-memory vs. not-in-memory conns
+    try:
+        # Only open/connect once per context
+        conn = sqlite3.connect(":memory:" if memory_db else "")
+        conn.execute("SELECT json('{}')")
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
