@@ -618,12 +618,32 @@ def detect_fts_sql(table):
 
 
 def detect_json1(conn=None):
+    """Detect if the SQLite JSON1 extension is available."""
+    # Fast path: if no conn and we have a global result, use it
     if conn is None:
+        global _global_json1_available
+        if _global_json1_available is not None:
+            return _global_json1_available
         conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute("SELECT json('{}')")
+            _global_json1_available = True
+            return True
+        except Exception:
+            _global_json1_available = False
+            return False
+        finally:
+            conn.close()
+    # If it's a connection, cache per-connection id
+    conn_id = id(conn)
+    if conn_id in _json1_cache:
+        return _json1_cache[conn_id]
     try:
         conn.execute("SELECT json('{}')")
+        _json1_cache[conn_id] = True
         return True
     except Exception:
+        _json1_cache[conn_id] = False
         return False
 
 
@@ -1460,3 +1480,7 @@ def deep_dict_update(dict1, dict2):
         else:
             dict1[key] = value
     return dict1
+
+_json1_cache = {}
+
+_global_json1_available = None
